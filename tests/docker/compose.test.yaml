@@ -1,0 +1,27 @@
+# Local end-to-end testing only: points the sync at a fake Garmin API.
+services:
+  fake-garmin:
+    image: fitness-data:local
+    user: "${PUID:-1000}:${PGID:-1000}"
+    entrypoint: ["python", "-m", "tests.fake_garmin_server"]
+    command: ["--port", "8765", "--api-key", "test-key", "--activities", "4"]
+    volumes:
+      - ${REPO_DIR}/tests:/opt/app/tests:ro
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import socket; socket.create_connection(('127.0.0.1', 8765), 2)"]
+      interval: 2s
+      retries: 15
+
+  garmin-sync:
+    depends_on:
+      fake-garmin:
+        condition: service_healthy
+    environment:
+      GARMIN_PERSONAL_API_BASE_URL: http://fake-garmin:8765
+      # Keep requests to the fake API off any proxy configured for containers.
+      NO_PROXY: fake-garmin
+      no_proxy: fake-garmin
+      BACKFILL_START: "2026-04-01"
+      MIN_REQUEST_INTERVAL_SECONDS: "0"
+      MAX_RETRIES: "2"

@@ -216,3 +216,15 @@ def test_extra_endpoints_are_probed(env):
     entry = next(r for r in report if r["endpoint"] == "training_status_candidate")
     assert entry["availability"] == "available"
     assert ("get", "/metrics-service/trainingstatus/2026-11-01") in harness.client.calls
+
+
+def test_coverage_uses_settings_recorded_by_sync(harness: Harness):
+    import dataclasses
+
+    harness.syncer().run("backfill", backfill=True)
+    # A reader configured with a different BACKFILL_START (e.g. the MCP container
+    # without .env) still reports coverage against what the sync was told to do.
+    reader = dataclasses.replace(harness.settings, backfill_start=date(2015, 1, 1))
+    report = coverage.build_report(harness.ledger, reader, today=TODAY)
+    assert report["backfill_start"] == harness.settings.backfill_start.isoformat()
+    assert report["backfill_complete"], report["blocking"]

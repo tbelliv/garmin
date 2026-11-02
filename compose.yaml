@@ -1,0 +1,63 @@
+# Garmin personal data platform. Separate from Home Assistant on purpose.
+#
+#   docker compose up -d garmin-sync                         # scheduled sync daemon
+#   docker compose run --rm garmin-sync app.sync check       # one-off commands
+#   docker compose --profile tools run --rm -T --no-deps garmin-mcp   # MCP over stdio
+
+name: fitness-data
+
+x-hardening: &hardening
+  image: fitness-data:local
+  user: "${PUID:-1000}:${PGID:-1000}"
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  garmin-sync:
+    <<: *hardening
+    build: .
+    command: ["app.sync", "daemon"]
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /data
+      GARMIN_API_KEY_FILE: /run/secrets/garmin_api_key
+      GARMIN_TOKEN_CACHE_FILE: /state/bearer-token.json
+      EXTRA_ENDPOINTS_FILE: /endpoints/extra-endpoints.json
+      TZ: ${TZ:-America/Denver}
+    secrets:
+      - garmin_api_key
+    volumes:
+      - ${DATA_ROOT:-/srv/fitness-data}:/data
+      - ./state:/state
+      - ./endpoints:/endpoints:ro
+      - ${IMPORT_ROOT:-/srv/fitness-imports}:/import:ro
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "5"}
+
+  # Read-only MCP server for Claude Code. No network, no Garmin credentials,
+  # archive mounted read-only. Started per Claude Code session over SSH.
+  garmin-mcp:
+    <<: *hardening
+    profiles: [tools]
+    command: ["app.mcp_server"]
+    network_mode: none
+    stdin_open: true
+    environment:
+      DATA_DIR: /data
+      EXTRA_ENDPOINTS_FILE: /endpoints/extra-endpoints.json
+      TZ: ${TZ:-America/Denver}
+    volumes:
+      - ${DATA_ROOT:-/srv/fitness-data}:/data:ro
+      - ./endpoints:/endpoints:ro
+
+secrets:
+  garmin_api_key:
+    file: ./config/garmin-api-key

@@ -151,8 +151,13 @@ class GarminApi:
                 text = (exc.response_text or "").strip()[:500]
                 if code == 401 and not refreshed:
                     log.warning("HTTP 401; obtaining a fresh bearer token and retrying once")
-                    self.client(force_refresh=True)
                     refreshed = True
+                    try:
+                        self.client(force_refresh=True)
+                    except GarminPersonalApiError as auth_exc:
+                        # The API key itself was rejected (or is missing).
+                        return CallResult("auth_error", http_status=getattr(
+                            auth_exc, "status_code", None), error=str(auth_exc)[:500])
                     continue
                 if code in RETRYABLE_HTTP and attempt < self.settings.max_retries:
                     delay = self._backoff(attempt, self.last_retry_after)

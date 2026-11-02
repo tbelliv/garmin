@@ -550,6 +550,7 @@ class Syncer:
         """
         self.run_id = self.ledger.start_run(kind)
         self.stats = RunStats()
+        coverage.record_settings(self.ledger, self.settings)
         if budget_minutes:
             self.deadline = time.monotonic() + budget_minutes * 60
         outcome = "completed"
@@ -641,12 +642,15 @@ def setup_logging(settings: Settings) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
+    for handler in [h for h in root.handlers if getattr(h, "_garmin_sync", False)]:
+        root.removeHandler(handler)
+        handler.close()
     stderr = logging.StreamHandler(sys.stderr)
-    stderr.setFormatter(fmt)
-    root.addHandler(stderr)
     logfile = logging.FileHandler(settings.log_dir / "sync.log")
-    logfile.setFormatter(fmt)
-    root.addHandler(logfile)
+    for handler in (stderr, logfile):
+        handler.setFormatter(fmt)
+        handler._garmin_sync = True  # type: ignore[attr-defined]
+        root.addHandler(handler)
     # The official client logs each request path at INFO; keep it, it is useful
     # and contains no secrets.
 
@@ -688,7 +692,7 @@ def cmd_check(syncer: Syncer, download: bool) -> int:
                         "SELECT zip_path, fit_files FROM activities WHERE activity_id=?",
                         (activity_id,)).fetchone()
                     results["activity_download"] = dict(row) if row else None
-        else:
+        elif page.resolved:
             results["activity_search_note"] = "no activities on the account yet"
         day = syncer.today - timedelta(days=1)
         health = syncer.execute("daily_summaries", f"{day}_{day}",

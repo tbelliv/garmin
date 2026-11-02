@@ -1,0 +1,11 @@
+[
+  {
+    "name": "example_copy_from_swagger",
+    "kind": "day",
+    "category": "performance",
+    "path": "/replace-with-a-path-from-garmins-swagger-docs/{date}",
+    "params": {},
+    "backfill": false,
+    "description": "Copy this file to extra-endpoints.json, replace the path with a real GET endpoint from https://developer.garmin.com/gc-developer-program/personal/swagger-docs/, run `app.sync probe`, then set backfill to true if it returns data. Placeholders: {date}, {start_date}, {end_date}. kind: day, range or static."
+  }
+]

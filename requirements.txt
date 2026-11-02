@@ -1,0 +1,8 @@
+# Versions tested together. Upgrade deliberately and rerun the tests.
+garmin-connect-personal-api-python==1.0.0   # Garmin's official Personal API client
+garmin-fit-sdk==21.218.0                    # Garmin's official FIT SDK
+mcp==2.3.0
+duckdb==2.0.0
+pyarrow==26.0.0
+pytz==2026.6                                # needed by DuckDB for timezone-aware timestamps
+requests==2.34.2

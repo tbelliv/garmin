@@ -354,6 +354,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         import_dir(settings, ledger, args.source, args.directory)
         parse_pending(settings, ledger)
+        from .normalize import rebuild
+
+        rebuild(settings, ledger)
     return 0
 
 

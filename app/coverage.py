@@ -14,12 +14,30 @@ Availability labels used throughout the platform:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from .db import FAILED_STATES, RESOLVED_STATES, Ledger
 from .endpoints import ACTIVITY_ENDPOINTS, all_endpoints
 from .settings import Settings
+
+
+def record_settings(ledger: Ledger, settings: Settings) -> None:
+    """Store the settings coverage depends on, so readers (the MCP container)
+    report coverage against what the sync was actually configured to do."""
+    ledger.set_kv("config:backfill_start", settings.backfill_start.isoformat())
+    ledger.set_kv("config:overlap_days", str(settings.overlap_days))
+
+
+def effective_settings(ledger: Ledger, settings: Settings) -> Settings:
+    start = ledger.get_kv("config:backfill_start")
+    overlap = ledger.get_kv("config:overlap_days")
+    return replace(
+        settings,
+        backfill_start=date.fromisoformat(start) if start else settings.backfill_start,
+        overlap_days=int(overlap) if overlap else settings.overlap_days,
+    )
 
 
 def _days(start: str, end: str) -> list[date]:
@@ -214,6 +232,7 @@ def activity_report(ledger: Ledger) -> dict[str, Any]:
 
 def build_report(ledger: Ledger, settings: Settings, today: date | None = None) -> dict[str, Any]:
     today = today or date.today()
+    settings = effective_settings(ledger, settings)
     statuses = ledger.endpoint_statuses()
     endpoints = [endpoint_report(ledger, settings, ep, today, statuses)
                  for ep in all_endpoints(settings.extra_endpoints_file)]
