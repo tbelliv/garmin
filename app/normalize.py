@@ -26,6 +26,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import duckdb
+import pyarrow as pa
 
 from . import PARSER_VERSION
 from .db import Ledger
@@ -232,6 +233,10 @@ def build_inventory(settings: Settings) -> None:
     tmp.replace(target)
 
 
+def parquet_columns(con: duckdb.DuckDBPyConnection, source: str) -> set[str]:
+    return {row[0] for row in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()}
+
+
 def build_activities(settings: Settings, ledger: Ledger) -> None:
     rows = []
     for r in ledger.conn.execute("SELECT * FROM activities"):
@@ -269,7 +274,18 @@ def build_activities(settings: Settings, ledger: Ledger) -> None:
     if not rows:
         return
     staging = settings.parquet_dir / ".activities_ledger.parquet"
-    write_parquet(rows_to_table(rows), staging)
+    numeric = ("distance_m", "duration_s", "moving_duration_s", "elevation_gain_m",
+               "elevation_loss_m", "avg_hr", "max_hr", "avg_speed_mps", "max_speed_mps",
+               "avg_power_w", "avg_cadence", "garmin_vo2max")
+    text = ("activity_key", "source", "source_record_id", "activity_type", "name",
+            "start_time_local", "start_time_gmt", "retrieved_at", "zip_path", "fit_error",
+            "parser_version")
+    types = {**{c: pa.float64() for c in numeric}, **{c: pa.string() for c in text}}
+    for row in rows:
+        for col in numeric:
+            if row.get(col) is not None:
+                row[col] = float(row[col])
+    write_parquet(rows_to_table(rows, types), staging)
     con = duckdb.connect()
     fit = settings.parquet_dir / "fit"
     have_summary = bool(list(fit.glob("summary/*/*.parquet")))
@@ -277,18 +293,21 @@ def build_activities(settings: Settings, ledger: Ledger) -> None:
     summary = (f"read_parquet('{fit}/summary/*/*.parquet', union_by_name=true)"
                if have_summary else
                "(SELECT NULL::VARCHAR AS activity_key, NULL::VARCHAR AS source LIMIT 0)")
-    sessions = (f"""(SELECT activity_key, source,
-                        any_value(sport) AS sport,
-                        SUM(total_distance) AS total_distance,
-                        SUM(total_timer_time) AS total_timer_time,
-                        SUM(total_elapsed_time) AS total_elapsed_time,
-                        SUM(total_ascent) AS total_ascent, SUM(total_descent) AS total_descent,
-                        AVG(avg_heart_rate) AS avg_heart_rate, MAX(max_heart_rate) AS max_heart_rate,
-                        MIN(start_time) AS start_time
-                    FROM read_parquet('{fit}/sessions/*/*.parquet', union_by_name=true)
-                    GROUP BY activity_key, source)"""
-                if have_sessions else
-                "(SELECT NULL::VARCHAR AS activity_key, NULL::VARCHAR AS source LIMIT 0)")
+    sessions = "(SELECT NULL::VARCHAR AS activity_key, NULL::VARCHAR AS source LIMIT 0)"
+    if have_sessions:
+        sessions_src = f"read_parquet('{fit}/sessions/*/*.parquet', union_by_name=true)"
+        present = parquet_columns(con, sessions_src)
+
+        def agg(fn: str, col: str, cast: str = "DOUBLE") -> str:
+            return f"{fn}({col}) AS {col}" if col in present else f"NULL::{cast} AS {col}"
+
+        sessions = f"""(SELECT activity_key, source,
+                {agg('any_value', 'sport', 'VARCHAR')},
+                {agg('SUM', 'total_distance')}, {agg('SUM', 'total_timer_time')},
+                {agg('SUM', 'total_elapsed_time')}, {agg('SUM', 'total_ascent')},
+                {agg('SUM', 'total_descent')}, {agg('AVG', 'avg_heart_rate')},
+                {agg('MAX', 'max_heart_rate')}, {agg('MIN', 'start_time', 'TIMESTAMPTZ')}
+            FROM {sessions_src} GROUP BY activity_key, source)"""
     target = settings.parquet_dir / "activities.parquet"
     tmp = target.with_name(".activities.tmp.parquet")
     # COALESCE prefers Garmin's own summary values; FIT session values fill in

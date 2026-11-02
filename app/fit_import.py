@@ -104,7 +104,8 @@ def _scalar_kind(value: Any) -> str:
     return "json"
 
 
-def rows_to_table(rows: list[dict[str, Any]]) -> pa.Table:
+def rows_to_table(rows: list[dict[str, Any]],
+                  types: dict[str, pa.DataType] | None = None) -> pa.Table:
     """Build an Arrow table from heterogeneous dict rows without losing fields.
 
     Each column gets a single type: numeric columns widen int->float, datetime
@@ -119,6 +120,9 @@ def rows_to_table(rows: list[dict[str, Any]]) -> pa.Table:
             values.append(row.get(key))
     arrays: dict[str, pa.Array] = {}
     for key, values in columns.items():
+        if types and key in types:
+            arrays[key] = pa.array(values, types[key])
+            continue
         kinds = {_scalar_kind(v) for v in values} - {"null"}
         if not kinds:
             arrays[key] = pa.nulls(len(values), pa.string())

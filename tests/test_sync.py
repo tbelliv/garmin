@@ -108,7 +108,10 @@ def test_rate_limit_stops_run_and_failures_stay_visible(harness: Harness):
     outcome = harness.syncer().run("backfill", backfill=True)
     assert outcome == "rate_limited"
     steps = [c for c in harness.client.calls if c[0] == "get_daily_steps"]
-    assert len(steps) == 1 + harness.settings.max_retries
+    failing = [c for c in steps if c[1] < "2026-10-01"]
+    # The first rate-limited range is retried MAX_RETRIES times, then the run stops.
+    assert len(failing) == 1 + harness.settings.max_retries
+    assert len(set(failing)) == 1
     report = coverage.build_report(harness.ledger, harness.settings, today=TODAY)
     assert not report["backfill_complete"]
     rep = {r["endpoint"]: r for r in report["endpoints"]}["daily_steps"]

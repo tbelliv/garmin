@@ -215,6 +215,21 @@ class Syncer:
         self.stats.requests += 1
         self.stats.note(result.status)
         prev = self.ledger.get_unit(endpoint, unit_key)
+        if result.status == "ok" and record_count(result.payload) == 0:
+            # e.g. {"data": []}: a successful request that returned no records.
+            result.status = "empty"
+        with self.ledger.tx():
+            self._record(result, endpoint, unit_key, prev, started, range_start=range_start,
+                         range_end=range_end, year=year, archive=archive)
+        if result.status == "rate_limited":
+            raise RateLimited(result.error or "HTTP 429")
+        if result.status == "auth_error":
+            raise AuthFailed(result.error or "HTTP 401 after token refresh")
+        return result
+
+    def _record(self, result: CallResult, endpoint: str, unit_key: str, prev: Any,
+                started: str, *, range_start: str | None, range_end: str | None, year: str,
+                archive: bool) -> None:
         raw_path = sha = None
         size = None
         if result.status in ("ok", "empty") and archive:
@@ -265,11 +280,6 @@ class Syncer:
             record_count=record_count(result.payload) if result.resolved else None,
             next_retry_at=next_retry,
         )
-        if result.status == "rate_limited":
-            raise RateLimited(result.error or "HTTP 429")
-        if result.status == "auth_error":
-            raise AuthFailed(result.error or "HTTP 401 after token refresh")
-        return result
 
     # --- date-grid planning ----------------------------------------------
     def day_floor(self) -> date:
@@ -285,7 +295,8 @@ class Syncer:
             return max(self.settings.backfill_start, date.fromisoformat(configured))
         evidence: list[date] = []
         row = self.ledger.conn.execute(
-            "SELECT MIN(range_start) FROM units WHERE endpoint='daily_summaries' AND state='ok'"
+            "SELECT MIN(range_start) FROM units WHERE endpoint='daily_summaries' "
+            "AND state='ok' AND record_count > 0"
         ).fetchone()
         if row and row[0]:
             evidence.append(date.fromisoformat(row[0]))

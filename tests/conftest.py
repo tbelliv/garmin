@@ -241,6 +241,7 @@ class Harness:
         self.settings = settings
         self.client = client
         self.ledger = Ledger(settings.ledger_path)
+        self.ledger.conn.execute("PRAGMA synchronous=OFF")  # tests only
         self.tokens: list[bool] = []
         self.api = GarminApi(settings, client_factory=lambda token: client,
                              token_provider=self._token, sleep=lambda s: None)

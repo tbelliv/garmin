@@ -158,22 +158,36 @@ class Ledger:
         self.read_only = read_only
         if read_only:
             uri = f"file:{path}?mode=ro"
-            self.conn = sqlite3.connect(uri, uri=True, timeout=30, check_same_thread=False)
+            self.conn = sqlite3.connect(uri, uri=True, timeout=30, check_same_thread=False,
+                                        isolation_level=None)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-            self.conn = sqlite3.connect(path, timeout=30)
+            self.conn = sqlite3.connect(path, timeout=30, isolation_level=None)
             self.conn.execute("PRAGMA journal_mode=DELETE")
             self.conn.execute("PRAGMA synchronous=FULL")
             self.conn.executescript(SCHEMA)
         self.conn.row_factory = sqlite3.Row
+        self._depth = 0
 
     def close(self) -> None:
         self.conn.close()
 
     @contextmanager
     def tx(self) -> Iterator[sqlite3.Connection]:
-        with self.conn:
+        """Transaction; nested calls join the outermost one, which commits once."""
+        if self._depth == 0:
+            self.conn.execute("BEGIN IMMEDIATE")
+        self._depth += 1
+        try:
             yield self.conn
+        except BaseException:
+            self._depth -= 1
+            if self._depth == 0:
+                self.conn.execute("ROLLBACK")
+            raise
+        self._depth -= 1
+        if self._depth == 0:
+            self.conn.execute("COMMIT")
 
     # --- runs -------------------------------------------------------------
     def start_run(self, kind: str) -> int:
