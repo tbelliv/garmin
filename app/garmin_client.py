@@ -51,11 +51,7 @@ class CallResult:
 
 
 def is_empty_payload(payload: Any) -> bool:
-    if payload is None:
-        return True
-    if isinstance(payload, (list, dict, str)) and len(payload) == 0:
-        return True
-    return False
+    return payload is None or (isinstance(payload, (list, dict, str)) and len(payload) == 0)
 
 
 def parse_retry_after(value: str | None) -> float | None:

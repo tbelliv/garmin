@@ -66,9 +66,9 @@ def unresolved_days(ledger: Ledger, endpoint: str, start: date, end: date, *,
     out = set()
     day = start
     while day <= end:
-        if states.get(day) not in RESOLVED_STATES:
-            if include_blocked or blocked.get(day, "") <= now:
-                out.add(day)
+        unresolved = states.get(day) not in RESOLVED_STATES
+        if unresolved and (include_blocked or blocked.get(day, "") <= now):
+            out.add(day)
         day += timedelta(days=1)
     return out
 
@@ -87,7 +87,8 @@ def endpoint_report(ledger: Ledger, settings: Settings, ep: Any, today: date,
                     statuses: dict[str, Any]) -> dict[str, Any]:
     states = day_states(ledger, ep.name)
     floor_kv = ledger.get_kv("day_floor")
-    start = settings.backfill_start if ep.backfill else today - timedelta(days=settings.overlap_days)
+    start = (settings.backfill_start if ep.backfill
+             else today - timedelta(days=settings.overlap_days))
     floor = start
     if ep.kind == "day" and ep.backfill and floor_kv:
         floor = max(start, date.fromisoformat(floor_kv))
@@ -137,9 +138,9 @@ def endpoint_report(ledger: Ledger, settings: Settings, ep: Any, today: date,
                 "complete": bool(snaps[0]), "failed_units": failed_units}
     if total_units == 0:
         availability = "not_investigated"
-    elif status_row is not None and status_row["availability"] == "not_accessible":
-        availability = "not_accessible"
-    elif counts["ok"] == 0 and counts["empty"] == 0 and counts["not_found"] > 0:
+    elif (status_row is not None and status_row["availability"] == "not_accessible") or (
+            counts["ok"] == 0 and counts["empty"] == 0 and counts["not_found"] > 0):
+        # 403, or nothing but 404s: the API does not serve this data to this account.
         availability = "not_accessible"
     elif counts["ok"] == 0 and counts["empty"] > 0:
         availability = "no_data_recorded"

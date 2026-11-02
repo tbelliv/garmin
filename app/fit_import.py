@@ -99,6 +99,8 @@ def _scalar_kind(value: Any) -> str:
         return "float"
     if isinstance(value, datetime):
         return "datetime"
+    if isinstance(value, date):
+        return "date"
     if isinstance(value, str):
         return "str"
     return "json"
@@ -140,6 +142,8 @@ def rows_to_table(rows: list[dict[str, Any]],
             arrays[key] = pa.array(
                 [None if v is None else (v if v.tzinfo else v.replace(tzinfo=UTC))
                  for v in values], pa.timestamp("us", tz="UTC"))
+        elif kinds == {"date"}:
+            arrays[key] = pa.array(values, pa.date32())
         elif kinds == {"str"}:
             arrays[key] = pa.array(values, pa.string())
         else:

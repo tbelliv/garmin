@@ -40,6 +40,8 @@ DATE_KEYS = ("calendarDate", "summaryDate", "date", "startDate", "startTimeLocal
 ID_KEYS = ("activityId", "id", "summaryId", "userDailySummaryId", "samplePk", "sleepId",
            "dailySleepDTO.id", "date")
 SPLIT_ENDPOINTS_KIND = {"range"}
+# Endpoints whose unit_key is an activity id: one logical record per activity.
+PER_ACTIVITY_ENDPOINTS = {"activity", "activity_workouts"}
 MAX_EXPANDED_LIST = 60  # lists of dicts longer than this stay JSON-only (time series)
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
@@ -147,6 +149,8 @@ def build_endpoint(settings: Settings, ledger: Ledger, endpoint: str, kind: str)
             if cal is None and att["range_start"] and att["range_start"] == att["range_end"]:
                 cal, date_key = att["range_start"], "request_date"
             rid = find_id(item)
+            if endpoint in PER_ACTIVITY_ENDPOINTS:
+                rid = rid or att["unit_key"]
             records.append({
                 "source": "garmin",
                 "endpoint": endpoint,
@@ -166,7 +170,9 @@ def build_endpoint(settings: Settings, ledger: Ledger, endpoint: str, kind: str)
     # Latest version of each logical record.
     latest: dict[tuple, dict[str, Any]] = {}
     for rec in records:
-        if rec["calendar_date"] is not None or rec["source_record_id"] is not None:
+        if endpoint in PER_ACTIVITY_ENDPOINTS:
+            identity = ("activity", rec["unit_key"], rec["record_index"])
+        elif rec["calendar_date"] is not None or rec["source_record_id"] is not None:
             identity = (rec["calendar_date"], rec["source_record_id"])
         else:
             identity = ("unit", rec["unit_key"], rec["record_index"])

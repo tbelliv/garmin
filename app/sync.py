@@ -27,13 +27,13 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from . import coverage
 from .archive import safe_component, sha256_bytes, store_api_response, write_immutable
 from .db import RESOLVED_STATES, Ledger, utcnow
-from .endpoints import ACTIVITY_ENDPOINTS, Endpoint, all_endpoints
+from .endpoints import Endpoint, all_endpoints
 from .garmin_client import CallResult, GarminApi
 from .settings import Settings, load_settings
 
@@ -449,8 +449,9 @@ class Syncer:
         ).fetchall()
         for row in rows:
             self._check_budget()
-            self.sync_one_activity(row["activity_id"], row["start_time_local"] or "",
-                                   row["zip_path"], recent=(row["start_time_local"] or "") >= cutoff)
+            start_local = row["start_time_local"] or ""
+            self.sync_one_activity(row["activity_id"], start_local, row["zip_path"],
+                                   recent=start_local >= cutoff)
 
     def _activity_unit_due(self, endpoint: str, activity_id: int, recent: bool) -> bool:
         unit = self.ledger.get_unit(endpoint, str(activity_id))
@@ -458,9 +459,8 @@ class Syncer:
             return True
         if unit["state"] in RESOLVED_STATES:
             return recent and endpoint != "activity_download"
-        if unit["next_retry_at"] and unit["next_retry_at"] > utcnow():
-            return False
-        return True
+        # A failed unit is due once its retry back-off has passed.
+        return not (unit["next_retry_at"] and unit["next_retry_at"] > utcnow())
 
     def sync_one_activity(self, activity_id: int, start_local: str, zip_path: str | None,
                           *, recent: bool) -> None:
@@ -603,8 +603,8 @@ class Syncer:
             try:
                 result = self.execute(
                     ep.name, key,
-                    (lambda c: ep.call(c)) if ep.kind == "static"
-                    else (lambda c, s=start, e=end: ep.call(c, s, e)),
+                    (lambda c, ep=ep: ep.call(c)) if ep.kind == "static"
+                    else (lambda c, ep=ep, s=start, e=end: ep.call(c, s, e)),
                     range_start=start.isoformat(), range_end=end.isoformat(),
                     year=str(start.year),
                 )
